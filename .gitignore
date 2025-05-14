@@ -1,1 +1,9 @@
-.env
+node_modules
+.next
+out
+
+# Environment variables
+.env.local
+
+# macOS
+.DS_Store

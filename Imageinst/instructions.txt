@@ -1,0 +1,630 @@
+Instructions for Building Prompt Gen Application
+Project Overview
+Create a full-stack web application called "Prompt Gen" that helps users transform rough ideas into well-structured prompts for generative AI models. The application should have a modern UI with a focus on user experience and should utilize current best practices for web development in 2025. This will be a public tool without authentication requirements.
+Technology Stack Requirements
+Frontend
+
+Next.js 14 with App Router
+TypeScript for type safety
+Tailwind CSS for styling
+Shadcn/UI component library
+React Hook Form with Zod for form validation
+Zustand for state management
+React Query for data fetching
+Framer Motion for animations
+
+Backend
+
+Next.js API routes for backend functionality
+Supabase for database and storage
+OpenAI SDKs for AI model integration
+LangChain.js for advanced prompt chain management
+
+DevOps
+
+Vercel for deployment
+Environment variables for configuration
+Proper error handling and logging
+
+Core Features
+1. Public Access
+
+No authentication required
+Local storage for saving prompt history
+Session management for temporary data storage
+
+2. Prompt Generation Interface
+
+Text input for user's rough idea
+Template selection (General, Creative, Technical, Analytical, etc.)
+AI model selection (GPT-4, Claude, etc.)
+Advanced settings panel for fine-tuning parameters
+Real-time prompt generation
+
+3. Prompt Analysis Engine
+
+Natural language processing to extract key elements from user input
+Topic detection
+Intent classification
+Complexity detection
+Format preference identification
+
+4. Template Management
+
+Pre-defined templates for different use cases
+Custom template creation
+Export/import templates functionality
+
+5. Prompt History
+
+Save generated prompts to local storage
+Organize prompts by category
+Export prompts as JSON or text files
+
+6. AI Integration
+
+Connection to OpenAI API
+Connection to Anthropic API
+Option to test generated prompts directly
+
+Detailed Implementation Instructions
+Project Setup
+
+Initialize a new Next.js project with TypeScript
+
+Install dependencies
+
+Set up Shadcn UI
+
+Set up Supabase:
+
+
+Create a new Supabase project
+Save the project URL and anon key as environment variables
+
+bash# .env.local
+NEXT_PUBLIC_SUPABASE_URL=your-project-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+Database Setup
+Create the following tables in Supabase:
+
+templates table:
+
+sqlCREATE TABLE templates (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  description TEXT,
+  structure TEXT NOT NULL,
+  category TEXT NOT NULL,
+  is_default BOOLEAN DEFAULT false,
+  placeholders JSONB,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create a function to update the updated_at column
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $
+BEGIN
+   NEW.updated_at = NOW();
+   RETURN NEW;
+END;
+$ language 'plpgsql';
+
+-- Create a trigger on the templates table
+CREATE TRIGGER update_templates_updated_at
+BEFORE UPDATE ON templates
+FOR EACH ROW
+EXECUTE PROCEDURE update_updated_at_column();
+
+global_prompts table (for featured/curated prompts):
+
+sqlCREATE TABLE global_prompts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  title TEXT,
+  raw_input TEXT NOT NULL,
+  refined_prompt TEXT NOT NULL,
+  category TEXT NOT NULL,
+  target_model TEXT NOT NULL,
+  settings JSONB,
+  is_featured BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create a trigger on the global_prompts table
+CREATE TRIGGER update_global_prompts_updated_at
+BEFORE UPDATE ON global_prompts
+FOR EACH ROW
+EXECUTE PROCEDURE update_updated_at_column();
+Application Structure
+Create the following directory structure:
+promptgen/
+├── src/
+│   ├── app/
+│   │   ├── page.tsx             # Main prompt generator page
+│   │   ├── templates/           # Templates management 
+│   │   ├── history/             # Prompt history
+│   │   ├── api/
+│   │   │   ├── prompts/
+│   │   │   ├── templates/
+│   │   │   └── ai/
+│   │   ├── layout.tsx
+│   │   └── globals.css
+│   ├── components/
+│   │   ├── ui/                 # shadcn/ui components
+│   │   ├── forms/
+│   │   │   ├── prompt-form.tsx
+│   │   │   └── template-form.tsx
+│   │   ├── prompt/
+│   │   │   ├── prompt-generator.tsx
+│   │   │   ├── template-selector.tsx
+│   │   │   ├── model-selector.tsx
+│   │   │   ├── settings-panel.tsx
+│   │   │   └── prompt-display.tsx
+│   │   ├── layout/
+│   │   │   ├── header.tsx
+│   │   │   ├── sidebar.tsx
+│   │   │   └── footer.tsx
+│   │   └── shared/
+│   ├── lib/
+│   │   ├── ai/
+│   │   │   ├── prompt-processor.ts
+│   │   │   ├── nlp-utils.ts
+│   │   │   ├── template-manager.ts
+│   │   │   └── ai-service.ts
+│   │   ├── db/
+│   │   │   └── supabase.ts      # Supabase client
+│   │   └── utils/
+│   │       ├── local-storage.ts  # For storing user data locally
+│   │       └── general-utils.ts
+│   ├── hooks/
+│   │   ├── use-prompt-generation.ts
+│   │   └── use-templates.ts
+│   ├── types/
+│   │   └── index.ts
+│   └── store/
+│       └── store.ts             # Zustand store
+└── public/
+Supabase Client Setup
+Create a Supabase client in src/lib/db/supabase.ts:
+typescriptimport { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+Local Storage Service
+Create a helper for managing local storage in src/lib/utils/local-storage.ts:
+typescriptexport type StorageKey = 'promptHistory' | 'userSettings' | 'customTemplates';
+
+export const localStorageService = {
+  setItem: <T>(key: StorageKey, value: T): void => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(key, JSON.stringify(value));
+    }
+  },
+  
+  getItem: <T>(key: StorageKey, defaultValue: T): T => {
+    if (typeof window !== 'undefined') {
+      const item = localStorage.getItem(key);
+      return item ? JSON.parse(item) : defaultValue;
+    }
+    return defaultValue;
+  },
+  
+  removeItem: (key: StorageKey): void => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(key);
+    }
+  }
+};
+Core Components Implementation
+1. Prompt Generator Component (src/components/prompt/prompt-generator.tsx)
+This component should:
+
+Allow text input for the user's rough idea
+Provide template selection
+Provide AI model selection
+Include settings configuration
+Display the generated prompt
+Enable copying the prompt to clipboard
+Allow saving the prompt to local storage
+
+The component should use React Hook Form for form management and Zustand for state. It should call the prompt processing API when generating prompts.
+2. Prompt Processor (src/lib/ai/prompt-processor.ts)
+This utility should:
+
+Extract key elements from user input
+Apply the selected template
+Use NLP techniques to recognize intent and topics
+Format the prompt based on best practices
+Optimize for the selected AI model
+
+3. Template System (src/lib/ai/template-manager.ts)
+This system should:
+
+Manage predefined templates
+Allow creation of custom templates
+Apply templates to user input
+Handle placeholder substitution
+Fetch global templates from Supabase
+Store custom templates in local storage
+
+4. API Routes
+Create the following API routes:
+
+/api/templates - Get templates from Supabase
+/api/prompts/featured - Get featured prompts from Supabase
+/api/ai/generate - Generate a refined prompt
+/api/ai/test-prompt - Test a prompt with a selected AI model
+
+User Interface
+
+The main interface should have:
+
+A clean, modern design with Tailwind CSS
+A header for navigation
+A main workspace for prompt generation
+A settings panel (collapsible)
+Responsive design for all device sizes
+
+
+The prompt form should include:
+
+A large text area for user input
+Template category selection (cards with icons)
+AI model selection (dropdown or buttons)
+Advanced settings (expandable panel)
+Generate button
+Reset button
+
+
+The result display should include:
+
+The refined prompt in a copyable text area
+Copy to clipboard button
+Save to history button
+Option to test the prompt directly
+
+
+
+State Management
+Use Zustand to manage the application state. Create stores for:
+
+User preferences (stored in local storage)
+Current prompt data
+Template data
+UI state (sidebar open/closed, settings panel, etc.)
+
+Example Zustand store:
+typescript// src/store/store.ts
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { localStorageService } from '@/lib/utils/local-storage';
+
+interface PromptState {
+  userInput: string;
+  refinedPrompt: string;
+  selectedCategory: string;
+  selectedModel: string;
+  settings: {
+    useChainOfThought: boolean;
+    includeExamples: boolean;
+    formatOutput: boolean;
+    specificityLevel: 'low' | 'balanced' | 'high';
+    tone: 'casual' | 'neutral' | 'formal' | 'professional';
+  };
+  history: Array<{
+    id: string;
+    timestamp: string;
+    rawInput: string;
+    refinedPrompt: string;
+    category: string;
+    model: string;
+  }>;
+  isLoading: boolean;
+  
+  // Actions
+  setUserInput: (input: string) => void;
+  setRefinedPrompt: (prompt: string) => void;
+  setSelectedCategory: (category: string) => void;
+  setSelectedModel: (model: string) => void;
+  updateSettings: (settings: Partial<PromptState['settings']>) => void;
+  addToHistory: (prompt: Omit<PromptState['history'][0], 'id' | 'timestamp'>) => void;
+  clearHistory: () => void;
+  setIsLoading: (loading: boolean) => void;
+}
+
+export const usePromptStore = create<PromptState>()(
+  persist(
+    (set) => ({
+      userInput: '',
+      refinedPrompt: '',
+      selectedCategory: 'general',
+      selectedModel: 'gpt4',
+      settings: {
+        useChainOfThought: true,
+        includeExamples: true,
+        formatOutput: true,
+        specificityLevel: 'balanced',
+        tone: 'neutral',
+      },
+      history: [],
+      isLoading: false,
+      
+      // Actions
+      setUserInput: (input) => set({ userInput: input }),
+      setRefinedPrompt: (prompt) => set({ refinedPrompt: prompt }),
+      setSelectedCategory: (category) => set({ selectedCategory: category }),
+      setSelectedModel: (model) => set({ selectedModel: model }),
+      updateSettings: (settings) => set((state) => ({
+        settings: { ...state.settings, ...settings }
+      })),
+      addToHistory: (prompt) => set((state) => ({
+        history: [
+          {
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            ...prompt
+          },
+          ...state.history
+        ]
+      })),
+      clearHistory: () => set({ history: [] }),
+      setIsLoading: (loading) => set({ isLoading: loading }),
+    }),
+    {
+      name: 'prompt-store',
+    }
+  )
+);
+Authentication
+Implement NextAuth.js for authentication:
+
+Email/password authentication
+OAuth providers (Google, GitHub)
+Protected routes for authenticated users
+User profile management
+
+Deployment
+Configure the application for deployment on Vercel:
+
+Environment variables for API keys and Supabase connection
+Production build optimization
+Error monitoring
+
+Implementation Phases
+Phase 1: Core Functionality
+
+Project setup
+Basic UI components
+Prompt processor implementation
+Template system
+Local storage integration
+
+Phase 2: Database and API
+
+Supabase integration
+API routes for templates and featured prompts
+Local storage for user history and preferences
+Template management
+
+Phase 3: AI Integration
+
+Connect to OpenAI and Anthropic APIs
+Implement prompt testing
+Advanced NLP features
+
+Phase 4: Polish and Optimization
+
+UI animations and transitions
+Performance optimization
+Error handling and logging
+User experience improvements
+
+Type Definitions
+Create the following type definitions in src/types/index.ts:
+typescript// Template types
+export interface Template {
+  id: string;
+  name: string;
+  description?: string;
+  structure: string;
+  category: TemplateCategory;
+  isDefault: boolean;
+  placeholders?: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TemplateCategory = 
+  | 'general' 
+  | 'creative' 
+  | 'technical' 
+  | 'analytical' 
+  | 'instructional' 
+  | 'business';
+
+// Prompt types
+export interface PromptData {
+  id: string;
+  title?: string;
+  rawInput: string;
+  refinedPrompt: string;
+  category: TemplateCategory;
+  targetModel: AIModel;
+  settings?: PromptSettings;
+  timestamp: string;
+}
+
+export type AIModel = 
+  | 'gpt4' 
+  | 'claude' 
+  | 'llama3' 
+  | 'mistral';
+
+export interface PromptSettings {
+  useChainOfThought: boolean;
+  includeExamples: boolean;
+  formatOutput: boolean;
+  specificityLevel: 'low' | 'balanced' | 'high';
+  tone: 'casual' | 'neutral' | 'formal' | 'professional';
+}
+
+// Analysis types
+export interface PromptAnalysis {
+  intent: 'explanatory' | 'creative' | 'instructional' | 'analytical' | 'business';
+  topic: string;
+  detailLevel: 'low' | 'medium' | 'high';
+  keywords: string[];
+  sentiment: 'positive' | 'neutral' | 'negative';
+  elements: Record<string, string>;
+  questionType: 'factual' | 'explanatory' | 'procedural' | 'advisory' | 'general';
+  formatPreference: 'list' | 'table' | 'stepByStep' | 'summary' | 'detailed' | 'standard';
+  audience: string;
+}
+
+// API response types
+export interface GeneratePromptResponse {
+  refinedPrompt: string;
+  analysis: PromptAnalysis;
+}
+
+export interface ApiError {
+  message: string;
+  status: number;
+}
+Seed Data for Templates
+Create initial template data to seed the Supabase database:
+typescript// scripts/seed-templates.ts
+import { supabase } from '../src/lib/db/supabase';
+import { Template, TemplateCategory } from '../src/types';
+
+const templates: Omit<Template, 'id' | 'createdAt' | 'updatedAt'>[] = [
+  {
+    name: "General Purpose",
+    description: "Balanced prompts for most use cases",
+    structure: "I need information about [TOPIC]. Please provide a [DETAIL_LEVEL] explanation covering [ASPECTS]. Format the response as [FORMAT].",
+    category: 'general',
+    isDefault: true,
+    placeholders: {
+      TOPIC: "the subject matter",
+      DETAIL_LEVEL: "detailed",
+      ASPECTS: "key aspects",
+      FORMAT: "a well-structured document with appropriate headings"
+    }
+  },
+  {
+    name: "Creative Writing",
+    description: "For storytelling and creative content",
+    structure: "Write a [GENRE] about [SUBJECT] that includes [ELEMENTS]. The tone should be [TONE] and the length approximately [LENGTH].",
+    category: 'creative',
+    isDefault: true,
+    placeholders: {
+      GENRE: "creative piece",
+      SUBJECT: "the subject matter",
+      ELEMENTS: "engaging elements",
+      TONE: "balanced",
+      LENGTH: "appropriate length"
+    }
+  },
+  {
+    name: "Technical Documentation",
+    description: "For technical explanations and code",
+    structure: "Explain [TECHNOLOGY/CONCEPT] in [DETAIL_LEVEL] detail. Include [SPECIFIC_ASPECTS] and provide [CODE_EXAMPLES] if relevant. Target audience is [AUDIENCE].",
+    category: 'technical',
+    isDefault: true,
+    placeholders: {
+      "TECHNOLOGY/CONCEPT": "the technical concept",
+      DETAIL_LEVEL: "comprehensive",
+      SPECIFIC_ASPECTS: "key components and principles",
+      CODE_EXAMPLES: "practical code examples",
+      AUDIENCE: "professionals with domain knowledge"
+    }
+  },
+  {
+    name: "Analysis & Research",
+    description: "For data analysis and research",
+    structure: "Analyze [SUBJECT] from [PERSPECTIVES]. Consider [FACTORS] and their relationships. Provide [DATA_POINTS] to support the analysis and suggest [RECOMMENDATIONS].",
+    category: 'analytical',
+    isDefault: true,
+    placeholders: {
+      SUBJECT: "the subject matter",
+      PERSPECTIVES: "relevant perspectives",
+      FACTORS: "key factors",
+      DATA_POINTS: "supporting evidence",
+      RECOMMENDATIONS: "actionable recommendations"
+    }
+  },
+  {
+    name: "Educational Content",
+    description: "For teaching and tutorials",
+    structure: "Create a lesson on [TOPIC] for [AUDIENCE_LEVEL] students. Include [CONCEPTS], [EXAMPLES], and [EXERCISES]. The learning objective is [OBJECTIVE].",
+    category: 'instructional',
+    isDefault: true,
+    placeholders: {
+      TOPIC: "the subject matter",
+      AUDIENCE_LEVEL: "intermediate",
+      CONCEPTS: "fundamental concepts",
+      EXAMPLES: "practical examples",
+      EXERCISES: "engaging exercises",
+      OBJECTIVE: "comprehensive understanding"
+    }
+  },
+  {
+    name: "Business Communication",
+    description: "For professional documents",
+    structure: "Draft a [DOCUMENT_TYPE] regarding [SUBJECT]. Include [KEY_POINTS], address [STAKEHOLDERS], and recommend [ACTIONS]. The communication style should be [STYLE].",
+    category: 'business',
+    isDefault: true,
+    placeholders: {
+      DOCUMENT_TYPE: "business document",
+      SUBJECT: "the subject matter",
+      KEY_POINTS: "essential information",
+      STAKEHOLDERS: "relevant parties",
+      ACTIONS: "next steps",
+      STYLE: "professional"
+    }
+  }
+];
+
+async function seedTemplates() {
+  console.log('Seeding templates...');
+  
+  for (const template of templates) {
+    const { error } = await supabase
+      .from('templates')
+      .insert(template);
+      
+    if (error) {
+      console.error(`Error inserting template ${template.name}:`, error);
+    } else {
+      console.log(`Template ${template.name} inserted successfully`);
+    }
+  }
+  
+  console.log('Seed completed');
+}
+
+seedTemplates().catch(console.error);
+Additional Notes
+
+Implement error boundaries for robust error handling
+Use TypeScript for all components and utilities
+Follow accessibility best practices
+Create comprehensive test coverage
+Document the code and API endpoints
+Implement proper SEO optimization
+Use environment variables for sensitive information
+Add analytics to understand user behavior without requiring login
+
+The resulting application should be a professional-grade tool for prompt engineering that helps users create more effective prompts for AI models, available to the public without requiring authentication. and utilities
+
+Follow accessibility best practices
+Create comprehensive test coverage
+Document the code and API endpoints
+Implement proper SEO optimization
+Use environment variables for sensitive information
+
+The resulting application should be a professional-grade tool for prompt engineering that helps users create more effective prompts for AI models.
